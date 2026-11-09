@@ -1,0 +1,510 @@
+--============================================================
+-- HAZE ANTI-AFK
+--============================================================
+
+local Players = game:GetService("Players")
+local HttpService = game:GetService("HttpService")
+local Stats = game:GetService("Stats")
+local VirtualUser = game:GetService("VirtualUser")
+local UserInputService = game:GetService("UserInputService")
+
+local Player = Players.LocalPlayer
+local PlayerGui = Player:WaitForChild("PlayerGui")
+
+-- CONFIG
+local VERIFY_URL = "https://haze-key-bot.onrender.com/verify-client"
+local UI_VERSION = "v1.0.0"
+
+local GREEN = Color3.fromRGB(0, 255, 120)
+local DARK = Color3.fromRGB(5, 10, 7)
+local PANEL = Color3.fromRGB(9, 18, 12)
+local WHITE = Color3.fromRGB(225, 255, 235)
+local RED = Color3.fromRGB(255, 75, 75)
+
+-- STATE
+local unlocked = false
+local checking = false
+local antiAfkEnabled = false
+local idleConnection
+
+-- Runtime only counts while Anti-AFK is enabled
+local runtimeStartedAt = nil
+
+--============================================================
+-- EXECUTOR NAME + VERSION
+--============================================================
+
+local function detectExecutorInfo()
+    local env = {}
+
+    if type(getgenv) == "function" then
+        local ok, result = pcall(getgenv)
+        if ok and type(result) == "table" then
+            env = result
+        end
+    end
+
+    local name = "Unknown"
+    local version = "Unknown"
+
+    local detector = env.identifyexecutor
+        or env.getexecutorname
+        or env.get_executor_name
+        or identifyexecutor
+        or getexecutorname
+
+    if type(detector) == "function" then
+        local ok, detectedName, detectedVersion = pcall(detector)
+
+        if ok then
+            if type(detectedName) == "string"
+                and detectedName ~= "" then
+                name = detectedName
+            end
+
+            if type(detectedVersion) == "string"
+                or type(detectedVersion) == "number" then
+                version = tostring(detectedVersion)
+            end
+        end
+    end
+
+    if version == "Unknown" then
+        for _, field in ipairs({
+            "ExecutorVersion",
+            "executor_version",
+            "VERSION",
+            "version"
+        }) do
+            local value = env[field]
+
+            if type(value) == "string"
+                or type(value) == "number" then
+                version = tostring(value)
+                break
+            end
+        end
+    end
+
+    return name, version
+end
+
+local executorName, executorVersion = detectExecutorInfo()
+
+--============================================================
+-- HTTP REQUEST HELPER
+--============================================================
+
+local function getRequestFunction()
+    if type(request) == "function" then
+        return request
+    end
+
+    if type(http_request) == "function" then
+        return http_request
+    end
+
+    if type(syn) == "table"
+        and type(syn.request) == "function" then
+        return syn.request
+    end
+
+    if type(getgenv) == "function" then
+        local ok, env = pcall(getgenv)
+
+        if ok and type(env) == "table"
+            and type(env.request) == "function" then
+            return env.request
+        end
+    end
+
+    return nil
+end
+
+--============================================================
+-- KEY VERIFICATION
+--============================================================
+
+local function verifyKey(key)
+    if type(key) ~= "string" or key:match("^%s*$") then
+        return false, "Enter your key."
+    end
+
+    local requestFn = getRequestFunction()
+
+    if not requestFn then
+        return false, "HTTP requests unavailable."
+    end
+
+    local ok, response = pcall(requestFn, {
+        Url = VERIFY_URL,
+        Method = "POST",
+        Headers = {
+            ["Content-Type"] = "application/json"
+        },
+        Body = HttpService:JSONEncode({
+            key = key
+        })
+    })
+
+    if not ok or type(response) ~= "table" then
+        return false, "Could not contact server."
+    end
+
+    local code = tonumber(response.StatusCode or 0)
+
+    if code < 200 or code >= 300 then
+        return false, "Server HTTP " .. tostring(code)
+    end
+
+    local decoded, data = pcall(function()
+        return HttpService:JSONDecode(response.Body or "")
+    end)
+
+    if not decoded or type(data) ~= "table" then
+        return false, "Invalid server response."
+    end
+
+    if data.valid == true
+        or data.success == true
+        or data.verified == true then
+        return true, data.message or "Key verified."
+    end
+
+    return false, data.message or data.error or "Invalid key."
+end
+
+--============================================================
+-- CREATE UI
+--============================================================
+
+local oldGui = PlayerGui:FindFirstChild("HAZE_DARTS_ALL_IN_ONE")
+if oldGui then
+    oldGui:Destroy()
+end
+
+local gui = Instance.new("ScreenGui")
+gui.Name = "HAZE_DARTS_ALL_IN_ONE"
+gui.ResetOnSpawn = false
+gui.DisplayOrder = 999
+gui.Parent = PlayerGui
+
+local function create(className, properties, parent)
+    local object = Instance.new(className)
+
+    for property, value in pairs(properties) do
+        object[property] = value
+    end
+
+    object.Parent = parent
+    return object
+end
+
+local main = create("Frame", {
+    Name = "Main",
+    Size = UDim2.fromOffset(390, 200),
+    Position = UDim2.new(0.5, -195, 0.5, -100),
+    BackgroundColor3 = DARK,
+    BorderColor3 = GREEN,
+    BorderSizePixel = 1,
+    Active = true
+}, gui)
+
+local top = create("Frame", {
+    Name = "TitleBar",
+    Size = UDim2.new(1, 0, 0, 40),
+    BackgroundColor3 = PANEL,
+    BorderSizePixel = 0,
+    Active = true
+}, main)
+
+create("TextLabel", {
+    Position = UDim2.fromOffset(12, 0),
+    Size = UDim2.new(1, -120, 1, 0),
+    BackgroundTransparency = 1,
+    Text = "HAZE // ANTI-AFK",
+    TextColor3 = GREEN,
+    Font = Enum.Font.Code,
+    TextSize = 19,
+    TextXAlignment = Enum.TextXAlignment.Left
+}, top)
+
+create("TextLabel", {
+    AnchorPoint = Vector2.new(1, 0),
+    Position = UDim2.new(1, -10, 0, 0),
+    Size = UDim2.fromOffset(95, 40),
+    BackgroundTransparency = 1,
+    Text = UI_VERSION,
+    TextColor3 = GREEN,
+    Font = Enum.Font.Code,
+    TextSize = 13,
+    TextXAlignment = Enum.TextXAlignment.Right
+}, top)
+
+local keyBox = create("TextBox", {
+    Position = UDim2.fromOffset(12, 51),
+    Size = UDim2.new(1, -24, 0, 38),
+    BackgroundColor3 = PANEL,
+    BorderColor3 = GREEN,
+    TextColor3 = WHITE,
+    PlaceholderColor3 = GREEN,
+    PlaceholderText = "Enter your HAZE key...",
+    Text = "",
+    ClearTextOnFocus = false,
+    Font = Enum.Font.Code,
+    TextSize = 14
+}, main)
+
+local verifyButton = create("TextButton", {
+    Position = UDim2.fromOffset(12, 96),
+    Size = UDim2.new(1, -24, 0, 35),
+    BackgroundColor3 = Color3.fromRGB(0, 55, 28),
+    BorderColor3 = GREEN,
+    Text = "VERIFY KEY",
+    TextColor3 = GREEN,
+    Font = Enum.Font.Code,
+    TextSize = 15
+}, main)
+
+local status = create("TextLabel", {
+    Position = UDim2.fromOffset(12, 140),
+    Size = UDim2.new(1, -24, 0, 30),
+    BackgroundTransparency = 1,
+    Text = "STATUS: LOCKED",
+    TextColor3 = WHITE,
+    Font = Enum.Font.Code,
+    TextSize = 14,
+    TextXAlignment = Enum.TextXAlignment.Left,
+    TextWrapped = true
+}, main)
+
+local details = create("TextLabel", {
+    Position = UDim2.fromOffset(14, 85),
+    Size = UDim2.new(1, -28, 0, 120),
+    BackgroundTransparency = 1,
+    Text = "",
+    TextColor3 = GREEN,
+    Font = Enum.Font.Code,
+    TextSize = 14,
+    TextXAlignment = Enum.TextXAlignment.Left,
+    TextYAlignment = Enum.TextYAlignment.Top,
+    TextWrapped = true
+}, main)
+
+details.Visible = false
+
+local afkButton = create("TextButton", {
+    Position = UDim2.fromOffset(12, 215),
+    Size = UDim2.new(1, -24, 0, 36),
+    BackgroundColor3 = PANEL,
+    BorderColor3 = GREEN,
+    Text = "ANTI-AFK: OFF",
+    TextColor3 = GREEN,
+    Font = Enum.Font.Code,
+    TextSize = 15,
+    Visible = false
+}, main)
+
+--============================================================
+-- DRAGGABLE TITLE BAR
+-- Works before and after unlocking
+--============================================================
+
+local dragging = false
+local dragStart
+local startPosition
+local dragInput
+
+top.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1
+        or input.UserInputType == Enum.UserInputType.Touch then
+
+        dragging = true
+        dragStart = input.Position
+        startPosition = main.Position
+    end
+end)
+
+top.InputChanged:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseMovement
+        or input.UserInputType == Enum.UserInputType.Touch then
+        dragInput = input
+    end
+end)
+
+UserInputService.InputChanged:Connect(function(input)
+    if dragging and input == dragInput then
+        local delta = input.Position - dragStart
+
+        main.Position = UDim2.new(
+            startPosition.X.Scale,
+            startPosition.X.Offset + delta.X,
+            startPosition.Y.Scale,
+            startPosition.Y.Offset + delta.Y
+        )
+    end
+end)
+
+UserInputService.InputEnded:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1
+        or input.UserInputType == Enum.UserInputType.Touch then
+        dragging = false
+    end
+end)
+
+--============================================================
+-- PING + SESSION RUNTIME
+--============================================================
+
+local function getPing()
+    local ok, value = pcall(function()
+        return Stats.Network.ServerStatsItem["Data Ping"]:GetValue()
+    end)
+
+    if ok then
+        return tostring(math.floor(value)) .. " ms"
+    end
+
+    return "N/A"
+end
+
+local function getRuntime()
+    if not antiAfkEnabled or not runtimeStartedAt then
+        return 0
+    end
+
+    return os.clock() - runtimeStartedAt
+end
+
+local function formatRuntime(seconds)
+    seconds = math.floor(seconds)
+
+    return string.format(
+        "%02d:%02d:%02d",
+        math.floor(seconds / 3600),
+        math.floor((seconds % 3600) / 60),
+        seconds % 60
+    )
+end
+
+local function updateDetails()
+    details.Text = string.format(
+        "PING: %s  |  RUNTIME: %s\nEXECUTOR: %s\nEXECUTOR VERSION: %s\nANTI-AFK: %s",
+        getPing(),
+        formatRuntime(getRuntime()),
+        executorName,
+        executorVersion,
+        antiAfkEnabled and "ON" or "OFF"
+    )
+end
+
+--============================================================
+-- ANTI-AFK TOGGLE + RUNTIME RESET
+-- OFF = timer resets to zero
+-- ON = timer starts from zero
+--============================================================
+
+local function setAntiAfk(enabled)
+    antiAfkEnabled = enabled
+
+    -- Reset timer every time the toggle changes
+    if enabled then
+        runtimeStartedAt = os.clock()
+    else
+        runtimeStartedAt = nil
+    end
+
+    afkButton.Text = enabled and "ANTI-AFK: ON" or "ANTI-AFK: OFF"
+
+    if idleConnection then
+        idleConnection:Disconnect()
+        idleConnection = nil
+    end
+
+    if enabled then
+        idleConnection = Player.Idled:Connect(function()
+            if antiAfkEnabled then
+                pcall(function()
+                    VirtualUser:CaptureController()
+                    VirtualUser:ClickButton2(Vector2.new(0, 0))
+                end)
+            end
+        end)
+    end
+
+    updateDetails()
+end
+
+afkButton.MouseButton1Click:Connect(function()
+    if unlocked then
+        setAntiAfk(not antiAfkEnabled)
+    end
+end)
+
+--============================================================
+-- VERIFY KEY BUTTON
+--============================================================
+
+verifyButton.MouseButton1Click:Connect(function()
+    if checking or unlocked then
+        return
+    end
+
+    checking = true
+    verifyButton.Text = "VERIFYING..."
+    status.TextColor3 = WHITE
+    status.Text = "STATUS: CHECKING KEY"
+
+    local callOk, valid, message = pcall(verifyKey, keyBox.Text)
+
+    if callOk and valid then
+        unlocked = true
+
+        status.Text = "STATUS: UNLOCKED"
+        status.TextColor3 = GREEN
+
+        keyBox.Visible = false
+        verifyButton.Visible = false
+        details.Visible = true
+        afkButton.Visible = true
+
+        main.Size = UDim2.fromOffset(390, 265)
+
+        status.Position = UDim2.fromOffset(12, 48)
+        details.Position = UDim2.fromOffset(14, 83)
+        afkButton.Position = UDim2.fromOffset(12, 215)
+
+        setAntiAfk(false)
+    else
+        status.TextColor3 = RED
+
+        if callOk then
+            status.Text = "STATUS: " .. tostring(message)
+        else
+            status.Text = "STATUS: Verification error."
+        end
+
+        verifyButton.Text = "VERIFY KEY"
+    end
+
+    checking = false
+    updateDetails()
+end)
+
+--============================================================
+-- LIVE REFRESH
+--============================================================
+
+task.spawn(function()
+    while gui.Parent do
+        if unlocked then
+            updateDetails()
+        end
+
+        task.wait(1)
+    end
+end)
+
+print("[HAZE] UI loaded.")
+print("[HAZE] Executor: " .. executorName)
+print("[HAZE] Executor version: " .. executorVersion)
