@@ -1,7 +1,3 @@
---============================================================
--- HAZE ANTI-AFK
---============================================================
-
 local Players = game:GetService("Players")
 local HttpService = game:GetService("HttpService")
 local Stats = game:GetService("Stats")
@@ -11,7 +7,6 @@ local UserInputService = game:GetService("UserInputService")
 local Player = Players.LocalPlayer
 local PlayerGui = Player:WaitForChild("PlayerGui")
 
--- CONFIG
 local VERIFY_URL = "https://haze-key-bot.onrender.com/verify-client"
 local UI_VERSION = "v1.0.0"
 
@@ -30,9 +25,6 @@ local idleConnection
 -- Runtime only counts while Anti-AFK is enabled
 local runtimeStartedAt = nil
 
---============================================================
--- EXECUTOR NAME + VERSION
---============================================================
 
 local function detectExecutorInfo()
     local env = {}
@@ -91,9 +83,6 @@ end
 
 local executorName, executorVersion = detectExecutorInfo()
 
---============================================================
--- HTTP REQUEST HELPER
---============================================================
 
 local function getRequestFunction()
     if type(request) == "function" then
@@ -121,9 +110,6 @@ local function getRequestFunction()
     return nil
 end
 
---============================================================
--- KEY VERIFICATION
---============================================================
 
 local function verifyKey(key)
     if type(key) ~= "string" or key:match("^%s*$") then
@@ -174,9 +160,6 @@ local function verifyKey(key)
     return false, data.message or data.error or "Invalid key."
 end
 
---============================================================
--- CREATE UI
---============================================================
 
 local oldGui = PlayerGui:FindFirstChild("HAZE_DARTS_ALL_IN_ONE")
 if oldGui then
@@ -305,10 +288,6 @@ local afkButton = create("TextButton", {
     Visible = false
 }, main)
 
---============================================================
--- DRAGGABLE TITLE BAR
--- Works before and after unlocking
---============================================================
 
 local dragging = false
 local dragStart
@@ -352,9 +331,6 @@ UserInputService.InputEnded:Connect(function(input)
     end
 end)
 
---============================================================
--- PING + SESSION RUNTIME
---============================================================
 
 local function getPing()
     local ok, value = pcall(function()
@@ -398,11 +374,6 @@ local function updateDetails()
     )
 end
 
---============================================================
--- ANTI-AFK TOGGLE + RUNTIME RESET
--- OFF = timer resets to zero
--- ON = timer starts from zero
---============================================================
 
 local function setAntiAfk(enabled)
     antiAfkEnabled = enabled
@@ -441,9 +412,6 @@ afkButton.MouseButton1Click:Connect(function()
     end
 end)
 
---============================================================
--- VERIFY KEY BUTTON
---============================================================
 
 verifyButton.MouseButton1Click:Connect(function()
     if checking or unlocked then
@@ -491,9 +459,6 @@ verifyButton.MouseButton1Click:Connect(function()
     updateDetails()
 end)
 
---============================================================
--- LIVE REFRESH
---============================================================
 
 task.spawn(function()
     while gui.Parent do
